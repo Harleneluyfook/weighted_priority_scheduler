@@ -1,0 +1,6 @@
+{
+  "name": "Weighted Priority Scheduler (WPS)",
+  "description": "A modern disaster response decision support system using Weighted Sum Model (WSM) for Baguio City's 128 barangays.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
