@@ -12,7 +12,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { BAGUIO_BARANGAYS } from './constants';
 import { BarangayData } from './types';
-import { calculateWSM } from './utils';
+import { calculateWSM, DEFAULT_WEIGHTS, WeightConfig } from './utils';
 import Dashboard from './components/Dashboard';
 import AssessmentInput from './components/AssessmentInput';
 import PriorityQueue from './components/PriorityQueue';
@@ -53,8 +53,10 @@ export default function App() {
     }));
   });
 
+  const [weights, setWeights] = useState<WeightConfig>(DEFAULT_WEIGHTS);
+
   // Derived stats
-  const rankedData = useMemo(() => calculateWSM(barangayList), [barangayList]);
+  const rankedData = useMemo(() => calculateWSM(barangayList, weights), [barangayList, weights]);
   
   const assessedBarangays = useMemo(() => 
     rankedData.filter(b => !!b.lastUpdated),
@@ -283,13 +285,15 @@ export default function App() {
                 <PriorityQueue 
                   barangays={rankedData} 
                   onRemove={resetBarangay}
+                  weights={weights}
+                  onWeightsChange={setWeights}
                 />
               )}
               {activeTab === 'analytics' && (
                 <Analytics data={assessedBarangays} />
               )}
               {activeTab === 'evaluation' && (
-                <Evaluation data={rankedData} />
+                <Evaluation data={rankedData} weights={weights} onWeightsChange={setWeights} />
               )}
               {activeTab === 'how-it-works' && (
                 <HowItWorks />
