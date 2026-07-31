@@ -12,20 +12,33 @@ import {
   ChevronDown,
   ChevronUp,
   Trash2,
-  FileText
+  FileText,
+  Sliders,
+  RotateCcw,
+  Sparkles,
+  Home,
+  HeartPulse
 } from 'lucide-react';
 import { BarangayData } from '../types';
-import { getUrgencyLevel, getRecommendation } from '../utils';
+import { getUrgencyLevel, getRecommendation, WeightConfig, DEFAULT_WEIGHTS } from '../utils';
 
 interface PriorityQueueProps {
   barangays: BarangayData[];
   onRemove: (id: string) => void;
+  weights?: WeightConfig;
+  onWeightsChange?: (weights: WeightConfig) => void;
 }
 
-export default function PriorityQueue({ barangays, onRemove }: PriorityQueueProps) {
+export default function PriorityQueue({ 
+  barangays, 
+  onRemove,
+  weights = DEFAULT_WEIGHTS,
+  onWeightsChange
+}: PriorityQueueProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [filter, setFilter] = useState<'All' | 'Highest' | 'Urgent' | 'Moderate' | 'Low'>('All');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [showWeightPanel, setShowWeightPanel] = useState(false);
 
   const filteredData = useMemo(() => {
     return barangays
@@ -47,24 +60,220 @@ export default function PriorityQueue({ barangays, onRemove }: PriorityQueueProp
     }
   };
 
+  const handleSliderChange = (key: keyof WeightConfig, val: number) => {
+    if (!onWeightsChange) return;
+    const newWeights = { ...weights, [key]: val };
+    const sum = newWeights.wFamilies + newWeights.wCasualties + newWeights.wHouses;
+    if (sum > 0) {
+      onWeightsChange({
+        wFamilies: Math.round((newWeights.wFamilies / sum) * 1000) / 1000,
+        wCasualties: Math.round((newWeights.wCasualties / sum) * 1000) / 1000,
+        wHouses: Math.round((newWeights.wHouses / sum) * 1000) / 1000,
+      });
+    }
+  };
+
+  const handleDirectValueChange = (key: keyof WeightConfig, typedVal: string) => {
+    if (!onWeightsChange) return;
+    const num = parseFloat(typedVal);
+    if (isNaN(num) || num < 0) return;
+    const fraction = num > 1 ? num / 100 : num;
+    const newWeights = { ...weights, [key]: fraction };
+    const sum = newWeights.wFamilies + newWeights.wCasualties + newWeights.wHouses;
+    if (sum > 0) {
+      onWeightsChange({
+        wFamilies: Math.round((newWeights.wFamilies / sum) * 1000) / 1000,
+        wCasualties: Math.round((newWeights.wCasualties / sum) * 1000) / 1000,
+        wHouses: Math.round((newWeights.wHouses / sum) * 1000) / 1000,
+      });
+    }
+  };
+
+  const applyPreset = (preset: 'equal' | 'casualty' | 'families' | 'houses') => {
+    if (!onWeightsChange) return;
+    if (preset === 'equal') {
+      onWeightsChange({ wFamilies: 1/3, wCasualties: 1/3, wHouses: 1/3 });
+    } else if (preset === 'casualty') {
+      onWeightsChange({ wCasualties: 0.50, wFamilies: 0.25, wHouses: 0.25 });
+    } else if (preset === 'families') {
+      onWeightsChange({ wFamilies: 0.50, wCasualties: 0.25, wHouses: 0.25 });
+    } else if (preset === 'houses') {
+      onWeightsChange({ wHouses: 0.50, wCasualties: 0.25, wFamilies: 0.25 });
+    }
+  };
+
   const activeCount = barangays.filter(b => b.priorityScore > 0).length;
 
   return (
     <div className="space-y-6">
+      {/* Page Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
            <h3 className="text-2xl font-bold text-slate-900">Disaster Response Priority Queue</h3>
-           <p className="text-gray-500">Live ranked list of all 128 Baguio barangays waiting for emergency resources.</p>
+           <p className="text-gray-500">Live ranked list of all Baguio barangays waiting for emergency resources.</p>
         </div>
         <div className="flex items-center gap-2">
            <button 
-             className="px-4 py-2 bg-white border border-gray-200 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-gray-50 transition-colors"
+             onClick={() => setShowWeightPanel(!showWeightPanel)}
+             className={`px-4 py-2.5 rounded-xl text-xs font-bold flex items-center gap-2 transition-all shadow-sm ${
+               showWeightPanel 
+                 ? 'bg-blue-600 text-white shadow-blue-200' 
+                 : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+             }`}
+           >
+             <Sliders size={16} />
+             <span>Custom Weights</span>
+             <span className="ml-1 px-2 py-0.5 bg-slate-100 text-slate-800 rounded-full text-[10px] font-mono">
+               {(weights.wFamilies * 100).toFixed(0)}/{(weights.wCasualties * 100).toFixed(0)}/{(weights.wHouses * 100).toFixed(0)}
+             </span>
+           </button>
+
+           <button 
+             className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-gray-50 transition-colors"
            >
              <Download size={16} />
              Export List
            </button>
         </div>
       </div>
+
+      {/* Interactive Weight Tuning Control Panel */}
+      {showWeightPanel && (
+        <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl border border-slate-800 space-y-6 animate-in fade-in slide-in-from-top-2 duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+             <div>
+                <div className="flex items-center gap-2">
+                   <Sliders className="text-blue-400" size={18} />
+                   <h4 className="text-base font-bold text-white">Interactive Criteria Weight Controls</h4>
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">Adjust how much weight each metric contributes to the final WSM priority score.</p>
+             </div>
+             
+             <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-1">Quick Presets:</span>
+                <button 
+                  onClick={() => applyPreset('equal')}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition-all border border-slate-700 flex items-center gap-1.5"
+                >
+                  ⚖️ Equal (33%)
+                </button>
+                <button 
+                  onClick={() => applyPreset('casualty')}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-red-300 text-xs font-bold transition-all border border-slate-700 flex items-center gap-1.5"
+                >
+                  <HeartPulse size={12} /> Casualty Heavy (50%)
+                </button>
+                <button 
+                  onClick={() => applyPreset('families')}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-blue-300 text-xs font-bold transition-all border border-slate-700 flex items-center gap-1.5"
+                >
+                  <Users size={12} /> Families Heavy (50%)
+                </button>
+                <button 
+                  onClick={() => applyPreset('houses')}
+                  className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-bold transition-all border border-slate-700 flex items-center gap-1.5"
+                >
+                  <Home size={12} /> Houses Heavy (50%)
+                </button>
+             </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+             {/* Casualties Weight Slider & Typable Input */}
+             <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/80 space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                   <span className="font-bold text-red-400 flex items-center gap-1.5">
+                     <HeartPulse size={14} /> Casualties Weight (w_casualty)
+                   </span>
+                   <div className="flex items-center gap-1 bg-slate-900 border border-slate-700/80 rounded-lg px-2 py-0.5">
+                     <input
+                       type="number"
+                       min="0"
+                       max="100"
+                       step="0.1"
+                       value={(weights.wCasualties * 100).toFixed(1)}
+                       onChange={(e) => handleDirectValueChange('wCasualties', e.target.value)}
+                       className="w-12 bg-transparent text-right font-mono font-bold text-white text-xs focus:outline-none focus:text-red-400"
+                     />
+                     <span className="text-[10px] font-mono font-bold text-slate-400">%</span>
+                   </div>
+                </div>
+                <input 
+                  type="range" 
+                  min="0.05" 
+                  max="0.80" 
+                  step="0.05"
+                  value={weights.wCasualties}
+                  onChange={(e) => handleSliderChange('wCasualties', parseFloat(e.target.value))}
+                  className="w-full accent-red-500 cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-400">Drag slider or type exact percentage (e.g. 50%). Auto-normalizes to 100% total.</p>
+             </div>
+
+             {/* Affected Families Weight Slider & Typable Input */}
+             <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/80 space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                   <span className="font-bold text-blue-400 flex items-center gap-1.5">
+                     <Users size={14} /> Affected Families Weight (w_families)
+                   </span>
+                   <div className="flex items-center gap-1 bg-slate-900 border border-slate-700/80 rounded-lg px-2 py-0.5">
+                     <input
+                       type="number"
+                       min="0"
+                       max="100"
+                       step="0.1"
+                       value={(weights.wFamilies * 100).toFixed(1)}
+                       onChange={(e) => handleDirectValueChange('wFamilies', e.target.value)}
+                       className="w-12 bg-transparent text-right font-mono font-bold text-white text-xs focus:outline-none focus:text-blue-400"
+                     />
+                     <span className="text-[10px] font-mono font-bold text-slate-400">%</span>
+                   </div>
+                </div>
+                <input 
+                  type="range" 
+                  min="0.05" 
+                  max="0.80" 
+                  step="0.05"
+                  value={weights.wFamilies}
+                  onChange={(e) => handleSliderChange('wFamilies', parseFloat(e.target.value))}
+                  className="w-full accent-blue-500 cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-400">Drag slider or type exact percentage (e.g. 30%). Auto-normalizes to 100% total.</p>
+             </div>
+
+             {/* Damaged Houses Weight Slider & Typable Input */}
+             <div className="bg-slate-800/80 p-4 rounded-2xl border border-slate-700/80 space-y-2">
+                <div className="flex justify-between items-center text-xs">
+                   <span className="font-bold text-amber-400 flex items-center gap-1.5">
+                     <Home size={14} /> Damaged Houses Weight (w_houses)
+                   </span>
+                   <div className="flex items-center gap-1 bg-slate-900 border border-slate-700/80 rounded-lg px-2 py-0.5">
+                     <input
+                       type="number"
+                       min="0"
+                       max="100"
+                       step="0.1"
+                       value={(weights.wHouses * 100).toFixed(1)}
+                       onChange={(e) => handleDirectValueChange('wHouses', e.target.value)}
+                       className="w-12 bg-transparent text-right font-mono font-bold text-white text-xs focus:outline-none focus:text-amber-400"
+                     />
+                     <span className="text-[10px] font-mono font-bold text-slate-400">%</span>
+                   </div>
+                </div>
+                <input 
+                  type="range" 
+                  min="0.05" 
+                  max="0.80" 
+                  step="0.05"
+                  value={weights.wHouses}
+                  onChange={(e) => handleSliderChange('wHouses', parseFloat(e.target.value))}
+                  className="w-full accent-amber-500 cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-400">Drag slider or type exact percentage (e.g. 20%). Auto-normalizes to 100% total.</p>
+             </div>
+          </div>
+        </div>
+      )}
 
       {/* Controls */}
       <div className="bg-white p-4 rounded-xl border border-gray-100 flex flex-col lg:flex-row gap-4 items-center">
@@ -99,7 +308,10 @@ export default function PriorityQueue({ barangays, onRemove }: PriorityQueueProp
       {/* Queue List Table */}
       <div className="bg-white rounded-3xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
         <div className="p-6 border-b border-slate-50 flex justify-between items-center">
-          <h4 className="font-bold text-slate-800">Response Queue (WSM Ranked)</h4>
+          <div>
+            <h4 className="font-bold text-slate-800">Response Queue (WSM Ranked)</h4>
+            <p className="text-xs text-slate-400">Active weights: Families {(weights.wFamilies * 100).toFixed(0)}%, Casualties {(weights.wCasualties * 100).toFixed(0)}%, Houses {(weights.wHouses * 100).toFixed(0)}%</p>
+          </div>
           <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-full text-[10px] font-black uppercase">Auto-Reranking On</span>
         </div>
         
@@ -212,22 +424,22 @@ export default function PriorityQueue({ barangays, onRemove }: PriorityQueueProp
                                                <td className="px-4 py-3 text-slate-600">Casualties</td>
                                                <td className="px-4 py-3 text-center">{brgy.casualties}</td>
                                                <td className="px-4 py-3 text-center">{(brgy.normalizedCasualties).toFixed(4)}</td>
-                                               <td className="px-4 py-3 text-center">1/3</td>
-                                               <td className="px-4 py-3 text-right font-bold text-red-600">+{(brgy.normalizedCasualties / 3).toFixed(4)}</td>
+                                               <td className="px-4 py-3 text-center">{(weights.wCasualties * 100).toFixed(1)}%</td>
+                                               <td className="px-4 py-3 text-right font-bold text-red-600">+{(brgy.normalizedCasualties * weights.wCasualties).toFixed(4)}</td>
                                             </tr>
                                             <tr>
                                                <td className="px-4 py-3 text-slate-600">Affected Fam</td>
                                                <td className="px-4 py-3 text-center">{brgy.affectedFamilies}</td>
                                                <td className="px-4 py-3 text-center">{(brgy.normalizedFamilies).toFixed(4)}</td>
-                                               <td className="px-4 py-3 text-center">1/3</td>
-                                               <td className="px-4 py-3 text-right font-bold text-blue-600">+{(brgy.normalizedFamilies / 3).toFixed(4)}</td>
+                                               <td className="px-4 py-3 text-center">{(weights.wFamilies * 100).toFixed(1)}%</td>
+                                               <td className="px-4 py-3 text-right font-bold text-blue-600">+{(brgy.normalizedFamilies * weights.wFamilies).toFixed(4)}</td>
                                             </tr>
                                             <tr>
                                                <td className="px-4 py-3 text-slate-600">Damaged Houses</td>
                                                <td className="px-4 py-3 text-center">{brgy.damagedHouses}</td>
                                                <td className="px-4 py-3 text-center">{(brgy.normalizedHouses).toFixed(4)}</td>
-                                               <td className="px-4 py-3 text-center">1/3</td>
-                                               <td className="px-4 py-3 text-right font-bold text-orange-600">+{(brgy.normalizedHouses / 3).toFixed(4)}</td>
+                                               <td className="px-4 py-3 text-center">{(weights.wHouses * 100).toFixed(1)}%</td>
+                                               <td className="px-4 py-3 text-right font-bold text-orange-600">+{(brgy.normalizedHouses * weights.wHouses).toFixed(4)}</td>
                                             </tr>
                                             <tr className="bg-slate-100/50 font-black">
                                                <td colSpan={4} className="px-4 py-3 text-slate-900 text-right uppercase text-[10px] tracking-widest">Final Priority Index:</td>
