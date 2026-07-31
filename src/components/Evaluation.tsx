@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { BarangayData } from '../types';
-import { calculateWSM } from '../utils';
+import { calculateWSM, generate37WeightScenarios, WeightConfig, DEFAULT_WEIGHTS } from '../utils';
 import { 
   CheckCircle2, 
   Cpu, 
@@ -10,17 +10,26 @@ import {
   AlertCircle,
   Lightbulb,
   Calculator,
-  ArrowRight
+  ArrowRight,
+  SlidersHorizontal,
+  ShieldCheck,
+  ShieldAlert,
+  Sparkles,
+  TrendingUp
 } from 'lucide-react';
 
 interface EvaluationProps {
   data: BarangayData[];
+  weights?: WeightConfig;
+  onWeightsChange?: (weights: WeightConfig) => void;
 }
 
-export default function Evaluation({ data }: EvaluationProps) {
+export default function Evaluation({ data, weights = DEFAULT_WEIGHTS, onWeightsChange }: EvaluationProps) {
   const assessed = data.filter(b => b.lastUpdated);
-  const [benchmarkStatus, setBenchmarkStatus] = React.useState<'idle' | 'running' | 'done'>('idle');
-  const [perfMetrics, setPerfMetrics] = React.useState({ total: 0, perRecord: 0, projected1000: 0 });
+  const [benchmarkStatus, setBenchmarkStatus] = useState<'idle' | 'running' | 'done'>('idle');
+  const [perfMetrics, setPerfMetrics] = useState({ total: 0, perRecord: 0, projected1000: 0 });
+  const [selectedScenarioIndex, setSelectedScenarioIndex] = useState<number>(0);
+  const [showAll37Scenarios, setShowAll37Scenarios] = useState<boolean>(false);
   
   // Group data by disaster for the "Priority Schedule" section
   const groupedData = useMemo<Record<string, BarangayData[]>>(() => {
@@ -38,6 +47,64 @@ export default function Evaluation({ data }: EvaluationProps) {
     
     return groups;
   }, [assessed]);
+
+  // Generate 37 Weight Scenarios Sensitivity Analysis
+  const scenarios = useMemo(() => generate37WeightScenarios(), []);
+
+  const sensitivityAnalysis = useMemo(() => {
+    if (assessed.length === 0) return null;
+
+    // Run WSM across all 37 weight scenarios
+    const scenarioResults = scenarios.map((sc, idx) => {
+      const ranked = calculateWSM(assessed, sc.weights);
+      return {
+        id: sc.id,
+        name: sc.name,
+        weights: sc.weights,
+        ranked
+      };
+    });
+
+    // Map each barangay to its rank in all 37 scenarios
+    const barangayStability = assessed.map(brgy => {
+      const ranksAcross37 = scenarioResults.map(s => {
+        const item = s.ranked.find(r => r.id === brgy.id);
+        return item ? item.rank : 0;
+      });
+
+      const minRank = Math.min(...ranksAcross37);
+      const maxRank = Math.max(...ranksAcross37);
+      const rankRange = maxRank - minRank;
+      const top5Count = ranksAcross37.filter(r => r <= 5).length;
+      const top5Percentage = (top5Count / 37) * 100;
+
+      return {
+        id: brgy.id,
+        name: brgy.name,
+        disaster: brgy.disaster,
+        baselineRank: brgy.rank,
+        minRank,
+        maxRank,
+        rankRange,
+        top5Count,
+        top5Percentage,
+        ranksAcross37
+      };
+    });
+
+    // Overall Top-1 stability
+    const top1PerScenario = scenarioResults.map(s => s.ranked[0]?.name);
+    const top1Counts: Record<string, number> = {};
+    top1PerScenario.forEach(name => {
+      if (name) top1Counts[name] = (top1Counts[name] || 0) + 1;
+    });
+
+    return {
+      scenarioResults,
+      barangayStability,
+      top1Counts
+    };
+  }, [assessed, scenarios]);
 
   const runBenchmark = () => {
     setBenchmarkStatus('running');
@@ -210,7 +277,7 @@ export default function Evaluation({ data }: EvaluationProps) {
               </div>
 
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Step 3: Weights ($w=1/3$)</p>
+                 <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">Step 3: Weights (w = 1/3)</p>
                  <p className="text-xs text-slate-600 font-mono">1/3 * Norm_F = {(sampleBarangay.normalizedFamilies/3).toFixed(4)}</p>
                  <p className="text-xs text-slate-600 font-mono">1/3 * Norm_C = {(sampleBarangay.normalizedCasualties/3).toFixed(4)}</p>
                  <p className="text-xs text-slate-600 font-mono">1/3 * Norm_D = {(sampleBarangay.normalizedHouses/3).toFixed(4)}</p>
@@ -315,6 +382,170 @@ export default function Evaluation({ data }: EvaluationProps) {
            </div>
         </div>
       </section>
+
+      {/* Evaluation (C): 37 Weight Scenario Sensitivity Analysis */}
+      {sensitivityAnalysis && (
+        <section className="space-y-6">
+          <div className="flex items-center justify-between flex-wrap gap-4">
+            <div className="flex items-center gap-3">
+               <SlidersHorizontal className="text-amber-500" size={20} />
+               <div>
+                  <h4 className="text-lg font-bold text-slate-900 uppercase">EVALUATION (C): 37-SCENARIO WEIGHT SENSITIVITY &amp; STABILITY MATRIX</h4>
+                  <p className="text-xs text-slate-500 font-medium">Evaluating rank shifts across 37 systemic weight combinations (as modeled in Python MCDA sensitivity analysis)</p>
+               </div>
+            </div>
+
+            <button 
+              onClick={() => setShowAll37Scenarios(!showAll37Scenarios)}
+              className="text-xs font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 px-4 py-2 rounded-xl transition-colors"
+            >
+              {showAll37Scenarios ? 'Collapse Scenarios' : 'View All 37 Scenarios Grid'}
+            </button>
+          </div>
+
+          {/* Top 1 Leadership Stability & Summary */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+              <div className="flex items-center gap-2 text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                <ShieldCheck size={14} className="text-emerald-500" />
+                <span>Top #1 Rank Dominance</span>
+              </div>
+              <div>
+                {Object.entries(sensitivityAnalysis.top1Counts).map(([bName, count]) => (
+                  <div key={bName} className="flex justify-between items-center py-1 border-b border-slate-50 last:border-none">
+                    <span className="font-bold text-slate-800 text-xs">{bName}</span>
+                    <span className="font-mono text-xs font-bold bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-md">
+                      {count}/37 ({((count/37)*100).toFixed(0)}%)
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400 pt-2 border-t border-slate-100">
+                Number of weight scenarios where this barangay secures Rank #1. High consensus indicates absolute priority.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+              <div className="flex items-center gap-2 text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                <TrendingUp size={14} className="text-blue-500" />
+                <span>Rank Shift Robustness</span>
+              </div>
+              <div>
+                <h5 className="text-2xl font-black text-slate-900">
+                  {(sensitivityAnalysis.barangayStability.filter(b => b.rankRange <= 2).length / (assessed.length || 1) * 100).toFixed(0)}%
+                </h5>
+                <p className="text-xs font-bold text-blue-600">Stable Barangays (Shift ≤ 2 ranks)</p>
+              </div>
+              <p className="text-[10px] text-slate-400 pt-2 border-t border-slate-100">
+                Barangays whose queue position remains virtually unaffected by extreme weight shifts between casualties, families, and houses.
+              </p>
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+              <div className="flex items-center gap-2 text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                <Sparkles size={14} className="text-amber-500" />
+                <span>Active Sensitivity Scenario</span>
+              </div>
+              <div>
+                <span className="px-2.5 py-1 bg-amber-50 text-amber-700 rounded-md text-xs font-bold font-mono">
+                  {scenarios[selectedScenarioIndex]?.id || 'S1'}: {scenarios[selectedScenarioIndex]?.name}
+                </span>
+                <p className="text-xs text-slate-600 mt-2 font-mono">
+                  Fam: {(scenarios[selectedScenarioIndex]?.weights.wFamilies * 100).toFixed(0)}% | 
+                  Cas: {(scenarios[selectedScenarioIndex]?.weights.wCasualties * 100).toFixed(0)}% | 
+                  Dam: {(scenarios[selectedScenarioIndex]?.weights.wHouses * 100).toFixed(0)}%
+                </p>
+              </div>
+              {onWeightsChange && (
+                <button
+                  onClick={() => onWeightsChange(scenarios[selectedScenarioIndex].weights)}
+                  className="w-full mt-2 bg-slate-900 text-white py-2 rounded-xl text-xs font-bold hover:bg-slate-800 transition-colors"
+                >
+                  Apply Scenario #{selectedScenarioIndex + 1} to App
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* 37 Scenarios Matrix Grid (Expandable) */}
+          {showAll37Scenarios && (
+            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+              <div className="flex justify-between items-center border-b border-slate-100 pb-3">
+                <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider">37 Scenario Weight Configurations Matrix</h5>
+                <span className="text-[10px] font-bold text-slate-400">Click any scenario to inspect</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-9 gap-2">
+                {scenarios.map((sc, idx) => (
+                  <button
+                    key={sc.id}
+                    onClick={() => setSelectedScenarioIndex(idx)}
+                    className={`p-2.5 rounded-xl text-center text-xs transition-all border ${
+                      selectedScenarioIndex === idx
+                        ? 'bg-slate-900 text-white border-slate-900 font-bold shadow-md'
+                        : 'bg-slate-50 hover:bg-slate-100 border-slate-100 text-slate-700 font-medium'
+                    }`}
+                  >
+                    <p className="font-mono text-[10px] uppercase font-bold text-slate-400">{sc.id}</p>
+                    <p className="text-[10px] font-mono mt-0.5">
+                      {(sc.weights.wFamilies*100).toFixed(0)}/{(sc.weights.wCasualties*100).toFixed(0)}/{(sc.weights.wHouses*100).toFixed(0)}
+                    </p>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Barangay Rank Stability Table across 37 Scenarios */}
+          <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
+              <h5 className="font-bold text-slate-800 text-xs uppercase tracking-wider">Barangay Rank Variation Across 37 Scenarios</h5>
+              <span className="text-[10px] font-mono font-bold text-slate-400">Min Rank ← Baseline → Max Rank</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead className="bg-slate-100/50 text-slate-500 font-bold uppercase text-[10px] border-b border-slate-100">
+                  <tr>
+                    <th className="px-6 py-3 font-sans font-bold text-slate-800">Barangay</th>
+                    <th className="px-6 py-3 text-center">Baseline Rank</th>
+                    <th className="px-6 py-3 text-center text-emerald-600">Best Rank</th>
+                    <th className="px-6 py-3 text-center text-red-600">Worst Rank</th>
+                    <th className="px-6 py-3 text-center">Max Rank Shift</th>
+                    <th className="px-6 py-3 text-center">Top-5 Consistency</th>
+                    <th className="px-6 py-3 text-right font-sans font-bold">Stability Tag</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {sensitivityAnalysis.barangayStability.slice(0, 15).map((b) => (
+                    <tr key={b.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-3 font-sans font-bold text-slate-800">{b.name}</td>
+                      <td className="px-6 py-3 text-center font-bold text-slate-900">#{b.baselineRank}</td>
+                      <td className="px-6 py-3 text-center font-bold text-emerald-600">#{b.minRank}</td>
+                      <td className="px-6 py-3 text-center font-bold text-red-600">#{b.maxRank}</td>
+                      <td className="px-6 py-3 text-center font-bold">
+                        <span className={`px-2 py-0.5 rounded-md ${b.rankRange <= 1 ? 'bg-emerald-50 text-emerald-700' : b.rankRange <= 3 ? 'bg-blue-50 text-blue-700' : 'bg-amber-50 text-amber-700'}`}>
+                          ±{b.rankRange}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-center font-bold text-slate-700">
+                        {b.top5Count}/37 ({b.top5Percentage.toFixed(0)}%)
+                      </td>
+                      <td className="px-6 py-3 text-right font-sans">
+                        {b.rankRange <= 1 ? (
+                          <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded text-[10px] font-bold">Highly Stable</span>
+                        ) : b.rankRange <= 3 ? (
+                          <span className="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-[10px] font-bold">Moderately Stable</span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-800 rounded text-[10px] font-bold">Weight Sensitive</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* Evaluation (B): Computational Efficiency */}
       <section className="space-y-6">
