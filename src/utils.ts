@@ -1,7 +1,66 @@
 import { BarangayData } from './types';
 
-export const calculateWSM = (data: BarangayData[]): BarangayData[] => {
+export interface WeightConfig {
+  wFamilies: number;
+  wCasualties: number;
+  wHouses: number;
+}
+
+export const DEFAULT_WEIGHTS: WeightConfig = {
+  wFamilies: 1 / 3,
+  wCasualties: 1 / 3,
+  wHouses: 1 / 3
+};
+
+export interface WeightScenario {
+  id: number;
+  name: string;
+  wFamilies: number;
+  wCasualties: number;
+  wHouses: number;
+}
+
+export const generate37WeightScenarios = (): WeightScenario[] => {
+  const scenarios: WeightScenario[] = [];
+  let id = 1;
+  for (let a = 1; a <= 8; a++) {
+    for (let b = 1; b <= 8; b++) {
+      for (let c = 1; c <= 8; c++) {
+        if (a + b + c === 10) {
+          scenarios.push({
+            id,
+            name: `S${id} (${a * 10}% / ${b * 10}% / ${c * 10}%)`,
+            wFamilies: Math.round((a / 10) * 1000) / 1000,
+            wCasualties: Math.round((b / 10) * 1000) / 1000,
+            wHouses: Math.round((c / 10) * 1000) / 1000,
+          });
+          id++;
+        }
+      }
+    }
+  }
+  // Add Equal Weights (37th scenario)
+  scenarios.push({
+    id: 37,
+    name: "S37 (Equal: 33.3% / 33.3% / 33.3%)",
+    wFamilies: Math.round((1 / 3) * 1000) / 1000,
+    wCasualties: Math.round((1 / 3) * 1000) / 1000,
+    wHouses: Math.round((1 / 3) * 1000) / 1000,
+  });
+  return scenarios;
+};
+
+export const calculateWSM = (
+  data: BarangayData[],
+  weights: WeightConfig = DEFAULT_WEIGHTS
+): BarangayData[] => {
   if (data.length === 0) return [];
+
+  // Normalize weight inputs so they sum to 1.0
+  const sum = weights.wFamilies + weights.wCasualties + weights.wHouses;
+  const w1 = sum > 0 ? weights.wFamilies / sum : 1 / 3;
+  const w2 = sum > 0 ? weights.wCasualties / sum : 1 / 3;
+  const w3 = sum > 0 ? weights.wHouses / sum : 1 / 3;
 
   // Group by disaster
   const groups: Record<string, BarangayData[]> = {};
@@ -12,9 +71,6 @@ export const calculateWSM = (data: BarangayData[]): BarangayData[] => {
   });
 
   const results: BarangayData[] = [];
-  const w1 = 1 / 3;
-  const w2 = 1 / 3;
-  const w3 = 1 / 3;
 
   Object.values(groups).forEach(groupData => {
     // Find min & max for normalization within group
